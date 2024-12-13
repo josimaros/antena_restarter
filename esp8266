@@ -1,0 +1,126 @@
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+// Defina os dados da sua rede Wi-Fi
+const char* ssid = "";    // Nome da rede Wi-Fi
+const char* password = "";  // Senha da rede Wi-Fi
+// Defina o pino do relé
+const int relayPin = 5;  // GPIO5 (D1 no ESP8266)
+// Configuração do bot Telegram
+const char* botToken = "";  // Insira o token do seu bot aqui
+// Definir o chat_id autorizado
+const String authorizedChatId = "";  // Substitua pelo chat_id do usuário autorizado
+
+WiFiClientSecure client;  // Cliente seguro para conexão HTTPS
+UniversalTelegramBot bot(botToken, client);
+
+void handleCommand(String chat_id, String text) {
+  text.toLowerCase();  // Converte texto para minúsculas (case-insensitive)
+  Serial.println("Processando comando: " + text);
+
+  if (text == "/ligar_antena") {
+    digitalWrite(relayPin, LOW);  // Liga o relé (LOW para ativar)
+    bot.sendMessage(chat_id, "Antena ligada! 🚚", "Markdown");
+
+  } else if (text == "/desligar_antena") {
+    digitalWrite(relayPin, HIGH);  // Desliga o relé (HIGH para desativar)
+    bot.sendMessage(chat_id, "antena desligada! ❌", "Markdown");
+
+  } else if (text.startsWith("/reiniciar_antena")) {
+    String delayStr = text.substring(18);
+    delayStr.trim();  // Remove espaços extras
+    int delayMs = delayStr.toInt() * 1000;
+    if (delayMs <= 0) delayMs = 15000;  // Valor padrão: 15 segundos
+
+    digitalWrite(relayPin, HIGH);  // Desliga o relé
+    delay(delayMs);
+    digitalWrite(relayPin, LOW);  // Religa o relé
+    bot.sendMessage(chat_id, "Reiniciando a antena em: " + String(delayMs / 1000) + "segundos! ⏳", "Markdown");
+
+  } else if (text == "/wifi_status") {
+    String wifiStatus = "Conectado ao Wi-Fi: " + String(ssid) + "\nIP: " + WiFi.localIP().toString();
+    bot.sendMessage(chat_id, wifiStatus, "Markdown");
+
+  } else if (text.startsWith("/ping")) {
+    String ip = text.substring(6);
+    ip.trim();  // Remove espaços extras
+    if (ip == "") {
+      bot.sendMessage(chat_id, "Por favor, informe o IP para ping (ex: /ping 192.168.0.1)", "Markdown");
+    } else {
+      bot.sendMessage(chat_id, "Pingando " + ip + "...", "Markdown");
+
+      IPAddress pingIP;
+      if (WiFi.hostByName(ip.c_str(), pingIP)) {
+        bot.sendMessage(chat_id, "Ping para " + ip + " bem-sucedido! ✅", "Markdown");
+      } else {
+        bot.sendMessage(chat_id, "Ping para " + ip + " falhou! ❌", "Markdown");
+      }
+    }
+  } else {
+
+    Serial.println("Comando não reconhecido: " + text);
+    String message =
+      "/ligar_antena - Ligar antena\n"
+      "/desligar_antena - Desligar antena\n"
+      "/reiniciar_antena [segundos] - Reiniciar relé com delay\n"
+      "/wifi_status - Ver status do Wi-Fi\n"
+      "/ping [ip] - Realizar ping para um IP";
+    bot.sendMessage(chat_id, message, "HTML");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Iniciando conexão Wi-Fi...");
+
+  WiFi.begin(ssid, password);  // Conecta ao Wi-Fi
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+
+  Serial.println("\nConectado ao Wi-Fi!");
+  Serial.print("Endereço IP: ");
+  Serial.println(WiFi.localIP());
+
+  // Configura cliente seguro
+  client.setInsecure();  // Para ignorar certificado SSL
+  Serial.println("Conexão com o bot Telegram iniciada...");
+
+  // Configura o pino do relé
+  pinMode(relayPin, OUTPUT);
+  digitalWrite(relayPin, HIGH);  // Relé desligado inicialmente
+}
+
+void loop() {
+  // Verifica se há mensagens do bot
+  int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+
+  while (numNewMessages) {
+    Serial.println("Mensagem recebida!");
+    for (int i = 0; i < numNewMessages; i++) {
+      String chat_id = bot.messages[i].chat_id;
+      String text = bot.messages[i].text;
+
+      Serial.println("Comando recebido: " + text);
+
+      Serial.println("Comando recebido: " + text);
+      Serial.println("Chat ID recebido: " + chat_id);  // Exibe o chat_id no Serial Monitor
+
+      // Verifica se o chat_id é autorizado
+      if (chat_id != authorizedChatId) {
+        Serial.println("Acesso negado para chat_id: " + chat_id);
+        bot.sendMessage(chat_id, "Acesso não autorizado. Contate o administrador.", "Markdown");
+        continue;
+      }
+
+      // Processa o comando recebido
+      handleCommand(chat_id, text);
+    }
+
+    // Verifica novamente se há novas mensagens
+    numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+  }
+
+  delay(1000);  // Evita sobrecarga de requisições
+}
